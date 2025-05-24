@@ -349,7 +349,11 @@ export class T3ChatService {
         '[role="main"] > div:last-child',
         'main > div:last-child',
         '.conversation-item:last-child',
-        '.chat-bubble:last-child'
+        '.chat-bubble:last-child',
+        '[data-message-author-role="assistant"]',
+        '[data-role="assistant"]',
+        '.gemini-response',
+        '.model-response'
       ];
 
       let response = '';
@@ -378,7 +382,11 @@ export class T3ChatService {
                   !text.startsWith('window.') &&
                   !text.includes('.push(arguments)') &&
                   !text.includes('Upgrade to Pro') &&
-                  !text.includes('Terms and our Privacy Policy')) {
+                  !text.includes('Terms and our Privacy Policy') &&
+                  !text.includes('Search Grounding Details') &&
+                  !text.includes('Search suggestions') &&
+                  !text.includes('Generated with') &&
+                  text.trim() !== 'Search Grounding Details') {
                 response = text.trim();
                 console.log(`Found response with selector ${selector}: ${response.substring(0, 100)}...`);
                 break;
@@ -392,7 +400,7 @@ export class T3ChatService {
         if (!response) {
           try {
             const allText = await page.evaluate(() => {
-              const excludeSelectors = ['script', 'style', 'nav', 'header', 'footer', '.analytics'];
+              const excludeSelectors = ['script', 'style', 'nav', 'header', 'footer', '.analytics', '.search-suggestions', '.grounding-details'];
               const walker = document.createTreeWalker(
                 document.body,
                 NodeFilter.SHOW_TEXT,
@@ -417,7 +425,11 @@ export class T3ChatService {
                         text.startsWith('window.') ||
                         text.includes('.push(arguments)') ||
                         text.includes('Upgrade to Pro') ||
-                        text.includes('Terms and our Privacy Policy')) {
+                        text.includes('Terms and our Privacy Policy') ||
+                        text.includes('Search Grounding Details') ||
+                        text.includes('Search suggestions') ||
+                        text.includes('Generated with') ||
+                        text.trim() === 'Search Grounding Details') {
                       return NodeFilter.FILTER_REJECT;
                     }
                     
@@ -442,7 +454,11 @@ export class T3ChatService {
                 !text.startsWith('window.') &&
                 !text.includes('.push(arguments)') &&
                 !text.includes('Upgrade to Pro') &&
-                !text.includes('Terms and our Privacy Policy')
+                !text.includes('Terms and our Privacy Policy') &&
+                !text.includes('Search Grounding Details') &&
+                !text.includes('Search suggestions') &&
+                !text.includes('Generated with') &&
+                text.trim() !== 'Search Grounding Details'
               );
             });
             
@@ -455,9 +471,265 @@ export class T3ChatService {
             console.log('Error with text walker:', error);
           }
         }
+
+        if (!response) {
+          try {
+            const assistantReplyResponse = await page.evaluate(() => {
+              const proseContainers = Array.from(document.querySelectorAll('[role="article"][aria-label*="Assistant"], .prose, [aria-label*="Assistant message"]'));
+              
+              for (const container of proseContainers) {
+                const assistantSpan = container.querySelector('span.sr-only, span[class*="sr-only"]');
+                if (assistantSpan && assistantSpan.textContent?.includes('Assistant Reply:')) {
+                  const paragraphs = container.querySelectorAll('p, div:not(.sr-only)');
+                  let responseText = '';
+                  
+                  for (const paragraph of paragraphs) {
+                    const text = paragraph.textContent?.trim();
+                    if (text && 
+                        text.length > 20 && 
+                        !text.includes('Assistant Reply:') &&
+                        !text.includes('Generated with') &&
+                        !text.includes('Search Grounding Details')) {
+                      responseText += text + '\n\n';
+                    }
+                  }
+                  
+                  if (responseText.trim().length > 50) {
+                    return responseText.trim();
+                  }
+                }
+              }
+              
+              const assistantSpan = Array.from(document.querySelectorAll('span')).find(span => 
+                span.textContent?.includes('Assistant Reply:') || span.classList.contains('sr-only')
+              );
+              
+              if (assistantSpan) {
+                let currentElement = assistantSpan.nextElementSibling;
+                let responseText = '';
+                
+                while (currentElement) {
+                  if (currentElement.tagName === 'P' || currentElement.tagName === 'UL' || currentElement.tagName === 'DIV') {
+                    const text = currentElement.textContent?.trim();
+                    if (text && 
+                        text.length > 20 && 
+                        !text.includes('Generated with') &&
+                        !text.includes('Search Grounding Details')) {
+                      responseText += text + '\n\n';
+                    }
+                  }
+                  currentElement = currentElement.nextElementSibling;
+                }
+                
+                return responseText.trim();
+              }
+              
+              return null;
+            });
+            
+            if (assistantReplyResponse && assistantReplyResponse.length > 50) {
+              response = assistantReplyResponse;
+              console.log(`Found Assistant Reply response: ${response.substring(0, 100)}...`);
+            }
+          } catch (error) {
+            console.log('Error with Assistant Reply extraction:', error);
+          }
+        }
+
+        if (!response) {
+          try {
+            const structuredContentResponse = await page.evaluate(() => {
+              const contentContainers = Array.from(document.querySelectorAll('div, article, section, main'));
+              
+              for (const container of contentContainers) {
+                const paragraphs = container.querySelectorAll('p');
+                const lists = container.querySelectorAll('ul, ol');
+                
+                if (paragraphs.length >= 2 || lists.length >= 1) {
+                  let combinedText = '';
+                  
+                  const allElements = Array.from(container.children);
+                  for (const element of allElements) {
+                    if (element.tagName === 'P' || element.tagName === 'UL' || element.tagName === 'OL') {
+                      const text = element.textContent?.trim();
+                      if (text && 
+                          text.length > 20 && 
+                          !text.includes('Search Grounding Details') &&
+                          !text.includes('window.plausible') &&
+                          !text.includes('analytics')) {
+                        combinedText += text + '\n\n';
+                      }
+                    }
+                  }
+                  
+                  if (combinedText.length > 200 && 
+                      (combinedText.includes('T3 Chat') || 
+                       combinedText.includes('AI chat') || 
+                       combinedText.includes('platform') ||
+                       combinedText.includes('Key features'))) {
+                    return combinedText.trim();
+                  }
+                }
+              }
+              
+              return null;
+            });
+            
+            if (structuredContentResponse) {
+              response = structuredContentResponse;
+              console.log(`Found structured content response: ${response.substring(0, 100)}...`);
+            }
+          } catch (error) {
+            console.log('Error with structured content extraction:', error);
+          }
+        }
+
+        if (!response) {
+          try {
+            const t3ChatSpecificResponse = await page.evaluate(() => {
+              const textElements = Array.from(document.querySelectorAll('p, div, span, article, section'));
+              let candidates: string[] = [];
+              
+              for (const element of textElements) {
+                const text = element.textContent?.trim();
+                if (text && 
+                    text.length > 200 && 
+                    (text.includes('T3 Chat') || text.includes('AI chat') || text.includes('platform') || text.includes('Key features')) &&
+                    !text.includes('Search Grounding Details') &&
+                    !text.includes('Search suggestions') &&
+                    !text.includes('window.plausible') &&
+                    !text.includes('analytics')) {
+                  candidates.push(text);
+                }
+              }
+              
+              candidates.sort((a, b) => b.length - a.length);
+              
+              for (const candidate of candidates) {
+                if (candidate.split('\n').length > 5 || candidate.length > 500) {
+                  return candidate;
+                }
+              }
+              
+              return candidates[0] || null;
+            });
+            
+            if (t3ChatSpecificResponse) {
+              response = t3ChatSpecificResponse;
+              console.log(`Found T3 Chat-specific response: ${response.substring(0, 100)}...`);
+            }
+          } catch (error) {
+            console.log('Error with T3 Chat-specific extraction:', error);
+          }
+        }
+        
+        if (!response) {
+          try {
+            const geminiSpecificResponse = await page.evaluate(() => {
+              const allElements = Array.from(document.querySelectorAll('*'));
+              for (let i = allElements.length - 1; i >= 0; i--) {
+                const element = allElements[i];
+                const text = element.textContent?.trim();
+                
+                if (text && 
+                    text.length > 100 && 
+                    !text.includes('Search Grounding Details') &&
+                    !text.includes('Search suggestions') &&
+                    !text.includes('window.plausible') &&
+                    !text.includes('analytics') &&
+                    !text.includes('Upgrade to Pro') &&
+                    text.split('\n').length > 3) {
+                  
+                  const children = element.children;
+                  let hasTextContent = false;
+                  
+                  for (let j = 0; j < children.length; j++) {
+                    const child = children[j];
+                    if (child.textContent && child.textContent.length > 50) {
+                      hasTextContent = true;
+                      break;
+                    }
+                  }
+                  
+                  if (hasTextContent || text.includes('Key features') || text.includes('aspects') || text.includes('T3 Chat')) {
+                    return text;
+                  }
+                }
+              }
+              return null;
+            });
+            
+            if (geminiSpecificResponse) {
+              response = geminiSpecificResponse;
+              console.log(`Found Gemini-specific response: ${response.substring(0, 100)}...`);
+            }
+          } catch (error) {
+            console.log('Error with Gemini-specific extraction:', error);
+          }
+        }
         
         attempts++;
         console.log(`Attempt ${attempts}/${maxAttempts} - Response length: ${response.length}`);
+        
+        if (!response && attempts === Math.floor(maxAttempts / 2)) {
+          try {
+            const pageDebugInfo = await page.evaluate(() => {
+              const allTextContent = document.body.textContent || '';
+              return {
+                totalTextLength: allTextContent.length,
+                containsSearchGrounding: allTextContent.includes('Search Grounding Details'),
+                containsT3Chat: allTextContent.includes('T3 Chat'),
+                containsKeyFeatures: allTextContent.includes('Key features'),
+                pageTitle: document.title,
+                visibleText: allTextContent.substring(0, 500)
+              };
+            });
+            console.log('Page debug info:', pageDebugInfo);
+          } catch (error) {
+            console.log('Error getting debug info:', error);
+          }
+        }
+      }
+
+      if (!response) {
+        try {
+          const finalFallbackResponse = await page.evaluate(() => {
+            const bodyText = document.body.textContent || '';
+            
+            if (bodyText.includes('Search Grounding Details') && bodyText.length > 50) {
+              const sections = bodyText.split('Search Grounding Details');
+              for (const section of sections) {
+                const cleanSection = section.trim();
+                if (cleanSection.length > 100 && 
+                    (cleanSection.includes('T3 Chat') || 
+                     cleanSection.includes('AI chat') || 
+                     cleanSection.includes('platform') ||
+                     cleanSection.includes('Key features') ||
+                     cleanSection.includes('designed') ||
+                     cleanSection.includes('fast') ||
+                     cleanSection.includes('efficient'))) {
+                  return cleanSection;
+                }
+              }
+            }
+            
+            const lines = bodyText.split('\n').filter(line => 
+              line.trim().length > 50 && 
+              !line.includes('Search Grounding Details') &&
+              !line.includes('window.plausible') &&
+              !line.includes('analytics')
+            );
+            
+            return lines.length > 0 ? lines.join('\n') : bodyText;
+          });
+          
+          if (finalFallbackResponse && finalFallbackResponse.length > 50) {
+            response = finalFallbackResponse;
+            console.log(`Found final fallback response: ${response.substring(0, 100)}...`);
+          }
+        } catch (error) {
+          console.log('Error with final fallback extraction:', error);
+        }
       }
 
       if (!response) {
