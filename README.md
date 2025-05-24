@@ -2,6 +2,10 @@
 
 A Discord bot that integrates with T3.CHAT AI models, allowing users to interact with various AI providers through Discord slash commands.
 
+![image](https://github.com/user-attachments/assets/ccea426d-216e-42ca-9253-1aaf9d4e4cb8)
+![image](https://github.com/user-attachments/assets/38456409-b698-48bf-8aa9-f7e4fa6c4e8d)
+
+
 ## Features
 
 - Supports all Models on T3.CHAT
