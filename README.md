@@ -25,10 +25,6 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
 - Uses puppeteer as a headless browser
 - Gemini 2.5 Flash With Search Enabled is set as default model 
 
-## TO-DO
-
-- Continue Thread/Make New Thread Option
-
 ## Setup Instructions
 
 ### Prerequisites
