@@ -44,6 +44,222 @@ export class T3ChatService {
     return this.browser;
   }
 
+  private async waitForGenerationCompletion(page: any, maxWaitTime: number = 30000): Promise<boolean> {
+    const startTime = Date.now();
+    let lastContentLength = 0;
+    let stableCount = 0;
+    
+    return new Promise(async (resolve) => {
+      const checkCompletion = async () => {
+        try {
+          const pageInfo = await page.evaluate(() => {
+            const responseSelectors = [
+              '[data-testid="message-content"]',
+              '.message-content',
+              '.response',
+              '.ai-response',
+              '.chat-message',
+              '.prose',
+              '[role="main"] > div:last-child',
+              'main > div:last-child',
+              '.conversation-item:last-child',
+              '.chat-bubble:last-child',
+              '[data-message-author-role="assistant"]',
+              '[data-role="assistant"]',
+              '.gemini-response',
+              '.model-response'
+            ];
+            
+            let hasContent = false;
+            let contentLength = 0;
+            let hasLoadingIndicator = false;
+            let hasCompletionIndicator = false;
+            
+            for (const selector of responseSelectors) {
+              const elements = document.querySelectorAll(selector);
+              if (elements.length > 0) {
+                const lastElement = elements[elements.length - 1];
+                const text = lastElement.textContent || '';
+                if (text.length > 20) {
+                  hasContent = true;
+                  contentLength = text.length;
+                  break;
+                }
+              }
+            }
+            
+            const loadingSelectors = [
+              '.loading',
+              '.generating',
+              '.thinking',
+              '[data-testid="loading"]',
+              '.spinner',
+              '.dots',
+              '[aria-label*="loading"]',
+              '[aria-label*="generating"]'
+            ];
+            
+            for (const selector of loadingSelectors) {
+              if (document.querySelector(selector)) {
+                hasLoadingIndicator = true;
+                break;
+              }
+            }
+            
+            const completionIndicators = [
+              '.completed',
+              '.finished',
+              '[data-testid="completed"]',
+              '[data-testid="finished"]'
+            ];
+            
+            for (const selector of completionIndicators) {
+              if (document.querySelector(selector)) {
+                hasCompletionIndicator = true;
+                break;
+              }
+            }
+            
+            return {
+              hasContent,
+              contentLength,
+              hasLoadingIndicator,
+              hasCompletionIndicator,
+              timestamp: Date.now()
+            };
+          });
+          
+          const elapsed = Date.now() - startTime;
+          
+          if (pageInfo.hasCompletionIndicator) {
+            console.log('Completion indicator found - generation finished');
+            resolve(true);
+            return;
+          }
+          
+          if (pageInfo.hasContent && !pageInfo.hasLoadingIndicator) {
+            if (pageInfo.contentLength === lastContentLength) {
+              stableCount++;
+              if (stableCount >= 2) {
+                console.log('Content stable for 2 checks - generation likely finished');
+                resolve(true);
+                return;
+              }
+            } else {
+              stableCount = 0;
+              lastContentLength = pageInfo.contentLength;
+            }
+          }
+          
+          if (elapsed > maxWaitTime) {
+            console.log('Max wait time reached for generation completion');
+            resolve(false);
+            return;
+          }
+          
+          setTimeout(checkCompletion, elapsed < 10000 ? 200 : 500);
+          
+        } catch (error) {
+          console.log('Error checking generation completion:', error);
+          resolve(false);
+        }
+      };
+      
+      checkCompletion();
+    });
+  }
+
+  private async extractResponse(page: any, question: string): Promise<string> {
+    const responseSelectors = [
+      '[data-testid="message-content"]',
+      '.message-content',
+      '.response',
+      '.ai-response',
+      '.chat-message',
+      '.prose',
+      '[role="main"] > div:last-child',
+      'main > div:last-child',
+      '.conversation-item:last-child',
+      '.chat-bubble:last-child',
+      '[data-message-author-role="assistant"]',
+      '[data-role="assistant"]',
+      '.gemini-response',
+      '.model-response'
+    ];
+
+    for (const selector of responseSelectors) {
+      try {
+        const elements = await page.$$(selector);
+        if (elements.length > 0) {
+          const lastElement = elements[elements.length - 1];
+          const text = await lastElement.evaluate((el: Element) => {
+            const textContent = el.textContent || '';
+            return textContent.trim();
+          });
+          
+          if (text && 
+              text.length > 20 && 
+              text.trim() !== question &&
+              !text.includes('window.plausible') &&
+              !text.includes('function()') &&
+              !text.includes('analytics') &&
+              !text.startsWith('window.') &&
+              !text.includes('.push(arguments)') &&
+              !text.includes('Upgrade to Pro') &&
+              !text.includes('Terms and our Privacy Policy') &&
+              !text.includes('Search Grounding Details') &&
+              !text.includes('Search suggestions') &&
+              !text.includes('Generated with') &&
+              text.trim() !== 'Search Grounding Details') {
+            console.log(`Found response with selector ${selector}: ${text.substring(0, 100)}...`);
+            return text.trim();
+          }
+        }
+      } catch (error) {
+        console.log(`Error with selector ${selector}:`, error);
+      }
+    }
+
+    try {
+      const assistantReplyResponse = await page.evaluate(() => {
+        const proseContainers = Array.from(document.querySelectorAll('[role="article"][aria-label*="Assistant"], .prose, [aria-label*="Assistant message"]'));
+        
+        for (const container of proseContainers) {
+          const assistantSpan = container.querySelector('span.sr-only, span[class*="sr-only"]');
+          if (assistantSpan && assistantSpan.textContent?.includes('Assistant Reply:')) {
+            const paragraphs = container.querySelectorAll('p, div:not(.sr-only)');
+            let responseText = '';
+            
+            for (const paragraph of paragraphs) {
+              const text = paragraph.textContent?.trim();
+              if (text && 
+                  text.length > 20 && 
+                  !text.includes('Assistant Reply:') &&
+                  !text.includes('Generated with') &&
+                  !text.includes('Search Grounding Details')) {
+                responseText += text + '\n\n';
+              }
+            }
+            
+            if (responseText.trim().length > 50) {
+              return responseText.trim();
+            }
+          }
+        }
+        return null;
+      });
+      
+      if (assistantReplyResponse && assistantReplyResponse.length > 50) {
+        console.log(`Found Assistant Reply response: ${assistantReplyResponse.substring(0, 100)}...`);
+        return assistantReplyResponse;
+      }
+    } catch (error) {
+      console.log('Error with Assistant Reply extraction:', error);
+    }
+
+    return '';
+  }
+
   async askModel(model: Model, question: string, useSearch: boolean = false, imageUrl?: string, pdfUrl?: string): Promise<string | { type: 'image', url: string, buffer?: Buffer }> {
     const browser = await this.getBrowser();
     const page = await browser.newPage();
@@ -95,7 +311,7 @@ export class T3ChatService {
         document.cookie = `token=${token}; path=/; domain=.t3.chat`;
       }, this.accessToken);
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       const authCheck = await page.evaluate(() => {
         return {
@@ -122,7 +338,7 @@ export class T3ChatService {
         timeout: navigationTimeout 
       });
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       const authCheckAfterNav = await page.evaluate(() => {
         return {
@@ -158,48 +374,93 @@ export class T3ChatService {
         
         if (loginAttempt) {
           console.log('Attempted login, waiting for redirect...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          await new Promise(resolve => setTimeout(resolve, 3000));
           
           await page.goto(url, { 
             waitUntil: 'networkidle0',
             timeout: navigationTimeout 
           });
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
 
-      const textareaSelector = 'textarea, input[type="text"], [contenteditable="true"]';
-      const submitButtonSelector = 'button[type="submit"], [data-testid="send-button"], .send-button, button[class*="send"], button[class*="submit"]';
-
-      const textarea = await page.$(textareaSelector);
-      if (textarea) {
-        await textarea.click();
-        await textarea.focus();
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Checking if question was auto-processed from URL...');
+      
+      const isQuestionAlreadyProcessed = await page.evaluate((questionToCheck: string) => {
+        const textareas = document.querySelectorAll('textarea, input[type="text"], [contenteditable="true"]');
+        for (const textarea of textareas) {
+          const value = (textarea as HTMLInputElement).value || textarea.textContent || '';
+          if (value.includes(questionToCheck)) {
+            return true;
+          }
+        }
         
-        await textarea.evaluate((el: any) => {
-          el.value = '';
-          el.textContent = '';
-        });
-
-        await textarea.type(finalQuestion, { delay: 50 });
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const responseSelectors = [
+          '[data-testid="message-content"]',
+          '.message-content',
+          '.response',
+          '.ai-response',
+          '.chat-message',
+          '.prose',
+          '[role="main"] > div:last-child',
+          'main > div:last-child',
+          '.conversation-item:last-child',
+          '.chat-bubble:last-child',
+          '[data-message-author-role="assistant"]',
+          '[data-role="assistant"]',
+          '.gemini-response',
+          '.model-response'
+        ];
         
-        const submitButton = await page.$(submitButtonSelector);
-        if (submitButton) {
-          console.log('Clicking submit button');
-          await submitButton.click();
+        for (const selector of responseSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            return true;
+          }
+        }
+        
+        return false;
+      }, finalQuestion);
+
+      if (!isQuestionAlreadyProcessed) {
+        const textareaSelector = 'textarea, input[type="text"], [contenteditable="true"]';
+        const submitButtonSelector = 'button[type="submit"], [data-testid="send-button"], .send-button, button[class*="send"], button[class*="submit"]';
+
+        const textarea = await page.$(textareaSelector);
+        if (textarea) {
+          console.log('Question not auto-processed, entering manually...');
+          await textarea.click();
+          await textarea.focus();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          await textarea.evaluate((el: any) => {
+            el.value = '';
+            el.textContent = '';
+          });
+
+          await textarea.type(finalQuestion, { delay: 10 });
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          const submitButton = await page.$(submitButtonSelector);
+          if (submitButton) {
+            console.log('Clicking submit button');
+            await submitButton.click();
+          } else {
+            console.log('No submit button found, pressing Enter');
+            await page.keyboard.press('Enter');
+          }
         } else {
-          console.log('No submit button found, pressing Enter');
-          await page.keyboard.press('Enter');
+          console.log('No textarea found, the query might already be in the URL');
         }
       } else {
-        console.log('No textarea found, the query might already be in the URL');
+        console.log('Question appears to be auto-processed from URL, skipping manual input');
       }
+
+      console.log('Starting aggressive response detection...');
 
       if (model.features.imageGen && model.name.includes('Imagegen')) {
         console.log('Waiting for image generation...');
-        await new Promise(resolve => setTimeout(resolve, isImageGen ? 30000 : 10000));
+        await new Promise(resolve => setTimeout(resolve, 8000));
         
         const imageSelectors = [
           'img[src*="utfs.io"]',
@@ -272,7 +533,7 @@ export class T3ChatService {
           
           imageAttempts++;
           console.log(`Image detection attempt ${imageAttempts}/${maxImageAttempts}`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, Math.min(1500 + (imageAttempts * 100), 4000)));
         }
         
         console.log('Standard image selectors failed, trying URL extraction...');
@@ -339,356 +600,53 @@ export class T3ChatService {
         console.log('Could not extract generated image, falling back to link');
       }
 
-      const responseSelectors = [
-        '[data-testid="message-content"]',
-        '.message-content',
-        '.response',
-        '.ai-response',
-        '.chat-message',
-        '.prose',
-        '[role="main"] > div:last-child',
-        'main > div:last-child',
-        '.conversation-item:last-child',
-        '.chat-bubble:last-child',
-        '[data-message-author-role="assistant"]',
-        '[data-role="assistant"]',
-        '.gemini-response',
-        '.model-response'
-      ];
-
       let response = '';
       let attempts = 0;
-      const maxAttempts = isImageGen ? 60 : 30;
+      const maxAttempts = isImageGen ? 40 : 25;
+      const startTime = Date.now();
+      
+      console.log('Starting parallel response detection and completion monitoring...');
+      
+      const responsePromise = new Promise<string>(async (resolve) => {
+        while (!response && attempts < maxAttempts) {
+          const extractedResponse = await this.extractResponse(page, finalQuestion);
+          if (extractedResponse) {
+            resolve(extractedResponse);
+            return;
+          }
+          
+          attempts++;
+          const elapsed = Date.now() - startTime;
+          
+          let pollInterval;
+          if (attempts <= 3) {
+            pollInterval = 100;
+          } else if (attempts <= 8) {
+            pollInterval = 200;
+          } else if (attempts <= 15 && elapsed < 8000) {
+            pollInterval = 400;
+          } else if (elapsed < 15000) {
+            pollInterval = 600;
+          } else {
+            pollInterval = 1000;
+          }
+          
+          console.log(`Attempt ${attempts}/${maxAttempts} - Next check in ${pollInterval}ms - Elapsed: ${elapsed}ms`);
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+        resolve('');
+      });
 
-      while (!response && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, isImageGen ? 3000 : 2000));
-        
-        for (const selector of responseSelectors) {
-          try {
-            const elements = await page.$$(selector);
-            if (elements.length > 0) {
-              const lastElement = elements[elements.length - 1];
-              const text = await lastElement.evaluate((el: Element) => {
-                const textContent = el.textContent || '';
-                return textContent.trim();
-              });
-              
-              if (text && 
-                  text.length > 20 && 
-                  text.trim() !== question &&
-                  !text.includes('window.plausible') &&
-                  !text.includes('function()') &&
-                  !text.includes('analytics') &&
-                  !text.startsWith('window.') &&
-                  !text.includes('.push(arguments)') &&
-                  !text.includes('Upgrade to Pro') &&
-                  !text.includes('Terms and our Privacy Policy') &&
-                  !text.includes('Search Grounding Details') &&
-                  !text.includes('Search suggestions') &&
-                  !text.includes('Generated with') &&
-                  text.trim() !== 'Search Grounding Details') {
-                response = text.trim();
-                console.log(`Found response with selector ${selector}: ${response.substring(0, 100)}...`);
-                break;
-              }
-            }
-          } catch (error) {
-            console.log(`Error with selector ${selector}:`, error);
-          }
-        }
-        
-        if (!response) {
-          try {
-            const allText = await page.evaluate(() => {
-              const excludeSelectors = ['script', 'style', 'nav', 'header', 'footer', '.analytics', '.search-suggestions', '.grounding-details'];
-              const walker = document.createTreeWalker(
-                document.body,
-                NodeFilter.SHOW_TEXT,
-                {
-                  acceptNode: function(node: any) {
-                    const parent = node.parentElement;
-                    if (!parent) return NodeFilter.FILTER_REJECT;
-                    
-                    const tagName = parent.tagName.toLowerCase();
-                    if (excludeSelectors.includes(tagName)) return NodeFilter.FILTER_REJECT;
-                    
-                    for (const selector of excludeSelectors) {
-                      if (selector.startsWith('.') && parent.classList.contains(selector.substring(1))) {
-                        return NodeFilter.FILTER_REJECT;
-                      }
-                    }
-                    
-                    const text = node.textContent || '';
-                    if (text.includes('window.plausible') || 
-                        text.includes('function()') || 
-                        text.includes('analytics') ||
-                        text.startsWith('window.') ||
-                        text.includes('.push(arguments)') ||
-                        text.includes('Upgrade to Pro') ||
-                        text.includes('Terms and our Privacy Policy') ||
-                        text.includes('Search Grounding Details') ||
-                        text.includes('Search suggestions') ||
-                        text.includes('Generated with') ||
-                        text.trim() === 'Search Grounding Details') {
-                      return NodeFilter.FILTER_REJECT;
-                    }
-                    
-                    return NodeFilter.FILTER_ACCEPT;
-                  }
-                }
-              );
-              
-              let textNodes: string[] = [];
-              let node;
-              while (node = walker.nextNode()) {
-                const text = node.textContent;
-                if (text && text.trim().length > 50) {
-                  textNodes.push(text.trim());
-                }
-              }
-              
-              return textNodes.filter(text => 
-                !text.includes('window.plausible') && 
-                !text.includes('function()') &&
-                !text.includes('analytics') &&
-                !text.startsWith('window.') &&
-                !text.includes('.push(arguments)') &&
-                !text.includes('Upgrade to Pro') &&
-                !text.includes('Terms and our Privacy Policy') &&
-                !text.includes('Search Grounding Details') &&
-                !text.includes('Search suggestions') &&
-                !text.includes('Generated with') &&
-                text.trim() !== 'Search Grounding Details'
-              );
-            });
-            
-            const lastText = allText[allText.length - 1];
-            if (lastText && lastText !== question && lastText.length > 20) {
-              response = lastText;
-              console.log(`Found response from text walker: ${response.substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.log('Error with text walker:', error);
-          }
-        }
+      const completionPromise = this.waitForGenerationCompletion(page, isImageGen ? 40000 : 20000);
 
-        if (!response) {
-          try {
-            const assistantReplyResponse = await page.evaluate(() => {
-              const proseContainers = Array.from(document.querySelectorAll('[role="article"][aria-label*="Assistant"], .prose, [aria-label*="Assistant message"]'));
-              
-              for (const container of proseContainers) {
-                const assistantSpan = container.querySelector('span.sr-only, span[class*="sr-only"]');
-                if (assistantSpan && assistantSpan.textContent?.includes('Assistant Reply:')) {
-                  const paragraphs = container.querySelectorAll('p, div:not(.sr-only)');
-                  let responseText = '';
-                  
-                  for (const paragraph of paragraphs) {
-                    const text = paragraph.textContent?.trim();
-                    if (text && 
-                        text.length > 20 && 
-                        !text.includes('Assistant Reply:') &&
-                        !text.includes('Generated with') &&
-                        !text.includes('Search Grounding Details')) {
-                      responseText += text + '\n\n';
-                    }
-                  }
-                  
-                  if (responseText.trim().length > 50) {
-                    return responseText.trim();
-                  }
-                }
-              }
-              
-              const assistantSpan = Array.from(document.querySelectorAll('span')).find(span => 
-                span.textContent?.includes('Assistant Reply:') || span.classList.contains('sr-only')
-              );
-              
-              if (assistantSpan) {
-                let currentElement = assistantSpan.nextElementSibling;
-                let responseText = '';
-                
-                while (currentElement) {
-                  if (currentElement.tagName === 'P' || currentElement.tagName === 'UL' || currentElement.tagName === 'DIV') {
-                    const text = currentElement.textContent?.trim();
-                    if (text && 
-                        text.length > 20 && 
-                        !text.includes('Generated with') &&
-                        !text.includes('Search Grounding Details')) {
-                      responseText += text + '\n\n';
-                    }
-                  }
-                  currentElement = currentElement.nextElementSibling;
-                }
-                
-                return responseText.trim();
-              }
-              
-              return null;
-            });
-            
-            if (assistantReplyResponse && assistantReplyResponse.length > 50) {
-              response = assistantReplyResponse;
-              console.log(`Found Assistant Reply response: ${response.substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.log('Error with Assistant Reply extraction:', error);
-          }
-        }
-
-        if (!response) {
-          try {
-            const structuredContentResponse = await page.evaluate(() => {
-              const contentContainers = Array.from(document.querySelectorAll('div, article, section, main'));
-              
-              for (const container of contentContainers) {
-                const paragraphs = container.querySelectorAll('p');
-                const lists = container.querySelectorAll('ul, ol');
-                
-                if (paragraphs.length >= 2 || lists.length >= 1) {
-                  let combinedText = '';
-                  
-                  const allElements = Array.from(container.children);
-                  for (const element of allElements) {
-                    if (element.tagName === 'P' || element.tagName === 'UL' || element.tagName === 'OL') {
-                      const text = element.textContent?.trim();
-                      if (text && 
-                          text.length > 20 && 
-                          !text.includes('Search Grounding Details') &&
-                          !text.includes('window.plausible') &&
-                          !text.includes('analytics')) {
-                        combinedText += text + '\n\n';
-                      }
-                    }
-                  }
-                  
-                  if (combinedText.length > 200 && 
-                      (combinedText.includes('T3 Chat') || 
-                       combinedText.includes('AI chat') || 
-                       combinedText.includes('platform') ||
-                       combinedText.includes('Key features'))) {
-                    return combinedText.trim();
-                  }
-                }
-              }
-              
-              return null;
-            });
-            
-            if (structuredContentResponse) {
-              response = structuredContentResponse;
-              console.log(`Found structured content response: ${response.substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.log('Error with structured content extraction:', error);
-          }
-        }
-
-        if (!response) {
-          try {
-            const t3ChatSpecificResponse = await page.evaluate(() => {
-              const textElements = Array.from(document.querySelectorAll('p, div, span, article, section'));
-              let candidates: string[] = [];
-              
-              for (const element of textElements) {
-                const text = element.textContent?.trim();
-                if (text && 
-                    text.length > 200 && 
-                    (text.includes('T3 Chat') || text.includes('AI chat') || text.includes('platform') || text.includes('Key features')) &&
-                    !text.includes('Search Grounding Details') &&
-                    !text.includes('Search suggestions') &&
-                    !text.includes('window.plausible') &&
-                    !text.includes('analytics')) {
-                  candidates.push(text);
-                }
-              }
-              
-              candidates.sort((a, b) => b.length - a.length);
-              
-              for (const candidate of candidates) {
-                if (candidate.split('\n').length > 5 || candidate.length > 500) {
-                  return candidate;
-                }
-              }
-              
-              return candidates[0] || null;
-            });
-            
-            if (t3ChatSpecificResponse) {
-              response = t3ChatSpecificResponse;
-              console.log(`Found T3 Chat-specific response: ${response.substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.log('Error with T3 Chat-specific extraction:', error);
-          }
-        }
-        
-        if (!response) {
-          try {
-            const geminiSpecificResponse = await page.evaluate(() => {
-              const allElements = Array.from(document.querySelectorAll('*'));
-              for (let i = allElements.length - 1; i >= 0; i--) {
-                const element = allElements[i];
-                const text = element.textContent?.trim();
-                
-                if (text && 
-                    text.length > 100 && 
-                    !text.includes('Search Grounding Details') &&
-                    !text.includes('Search suggestions') &&
-                    !text.includes('window.plausible') &&
-                    !text.includes('analytics') &&
-                    !text.includes('Upgrade to Pro') &&
-                    text.split('\n').length > 3) {
-                  
-                  const children = element.children;
-                  let hasTextContent = false;
-                  
-                  for (let j = 0; j < children.length; j++) {
-                    const child = children[j];
-                    if (child.textContent && child.textContent.length > 50) {
-                      hasTextContent = true;
-                      break;
-                    }
-                  }
-                  
-                  if (hasTextContent || text.includes('Key features') || text.includes('aspects') || text.includes('T3 Chat')) {
-                    return text;
-                  }
-                }
-              }
-              return null;
-            });
-            
-            if (geminiSpecificResponse) {
-              response = geminiSpecificResponse;
-              console.log(`Found Gemini-specific response: ${response.substring(0, 100)}...`);
-            }
-          } catch (error) {
-            console.log('Error with Gemini-specific extraction:', error);
-          }
-        }
-        
-        attempts++;
-        console.log(`Attempt ${attempts}/${maxAttempts} - Response length: ${response.length}`);
-        
-        if (!response && attempts === Math.floor(maxAttempts / 2)) {
-          try {
-            const pageDebugInfo = await page.evaluate(() => {
-              const allTextContent = document.body.textContent || '';
-              return {
-                totalTextLength: allTextContent.length,
-                containsSearchGrounding: allTextContent.includes('Search Grounding Details'),
-                containsT3Chat: allTextContent.includes('T3 Chat'),
-                containsKeyFeatures: allTextContent.includes('Key features'),
-                pageTitle: document.title,
-                visibleText: allTextContent.substring(0, 500)
-              };
-            });
-            console.log('Page debug info:', pageDebugInfo);
-          } catch (error) {
-            console.log('Error getting debug info:', error);
-          }
-        }
+      const result = await Promise.race([responsePromise, completionPromise.then(() => '')]);
+      
+      if (result) {
+        response = result;
+        console.log(`Fast response detection successful in ${Date.now() - startTime}ms`);
+      } else {
+        console.log('Racing promises completed, trying final extraction...');
+        response = await this.extractResponse(page, finalQuestion);
       }
 
       if (!response) {
@@ -738,6 +696,8 @@ export class T3ChatService {
         return `I couldn't extract the response from T3.CHAT automatically. Please visit this link to see the response: ${url}`;
       }
 
+      const totalTime = Date.now() - startTime;
+      console.log(`Total response extraction time: ${totalTime}ms`);
       return response;
 
     } catch (error) {

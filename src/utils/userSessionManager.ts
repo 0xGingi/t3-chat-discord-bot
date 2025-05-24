@@ -2,7 +2,7 @@ import { UserSession } from '../types/index.js';
 
 export class UserSessionManager {
   private sessions: Map<string, UserSession> = new Map();
-  private defaultModel: string = 'Gemini 2.5 Flash Thinking';
+  private defaultModel: string = 'Gemini 2.5 Flash';
 
   getUserSession(userId: string): UserSession | undefined {
     return this.sessions.get(userId);
