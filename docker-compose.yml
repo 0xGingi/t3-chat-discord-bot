@@ -1,0 +1,9 @@
+services:
+  t3-chat-discord-bot:
+    build: .
+    container_name: t3-chat-discord-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production 
