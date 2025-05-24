@@ -200,34 +200,31 @@ async function handleSetModel(
 
   const embed = new EmbedBuilder()
     .setColor(getProviderColor(model.provider))
-    .setTitle('✅ Model Changed Successfully')
+    .setTitle('✅ Model Set Successfully')
     .setAuthor({
       name: `${getProviderEmoji(model.provider)} ${model.name}`,
       iconURL: interaction.user.displayAvatarURL({ size: 32 })
     })
-    .setDescription(`You are now using **${model.name}** by ${model.provider}`)
+    .setDescription(`Successfully switched to **${model.name}** by ${model.provider}`)
     .addFields(
       { 
         name: '🔧 Features', 
         value: formatFeatures(model.features), 
         inline: true 
       },
+      { 
+        name: '📊 Quick Info', 
+        value: `**Provider:** ${model.provider}\n**Type:** ${getModelTypeDescription(model)}`, 
+        inline: true 
+      },
       {
-        name: '📊 Provider Info',
-        value: `**Company:** ${model.provider}\n**Type:** AI Language Model`,
-        inline: true
+        name: '🚀 Get Started',
+        value: 'Use `/ask <question>` to start chatting!\nTry `/model current` to see details anytime.',
+        inline: false
       }
     )
     .setFooter({ text: `Ready to chat! Use /ask to start asking questions.` })
     .setTimestamp();
-
-  if (model.specialNotes) {
-    embed.addFields({ 
-      name: '📌 Special Notes', 
-      value: model.specialNotes, 
-      inline: false 
-    });
-  }
 
   await interaction.reply({ embeds: [embed] });
 }
@@ -358,14 +355,6 @@ async function handleCurrentModel(
     .setFooter({ text: 'Ready to chat! Use /ask to start asking questions.' })
     .setTimestamp();
 
-  if (model.specialNotes) {
-    embed.addFields({ 
-      name: '📌 Special Notes', 
-      value: model.specialNotes, 
-      inline: false 
-    });
-  }
-
   await interaction.reply({ embeds: [embed] });
 }
 
@@ -452,4 +441,18 @@ function getProviderColor(provider: string): number {
 
 function getProviderEmoji(provider: string): string {
   return PROVIDER_EMOJIS[provider.toLowerCase() as keyof typeof PROVIDER_EMOJIS] || PROVIDER_EMOJIS.default;
+}
+
+function getModelTypeDescription(model: any): string {
+  if (model.features.imageGen) {
+    return 'Image Generation';
+  } else if (model.features.reasoning) {
+    return 'Advanced Reasoning';
+  } else if (model.features.vision) {
+    return 'Vision-Capable';
+  } else if (model.features.fast) {
+    return 'Fast Response';
+  } else {
+    return 'Language Model';
+  }
 } 

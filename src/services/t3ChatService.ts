@@ -192,27 +192,126 @@ export class T3ChatService {
         const elements = await page.$$(selector);
         if (elements.length > 0) {
           const lastElement = elements[elements.length - 1];
-          const text = await lastElement.evaluate((el: Element) => {
+          
+          const structuredText = await lastElement.evaluate((el: Element) => {
+            let result = '';
+            
+            const processElement = (element: Element): string => {
+              let text = '';
+              
+              for (let i = 0; i < element.children.length; i++) {
+                const child = element.children[i];
+                const tagName = child.tagName.toLowerCase();
+                
+                if (tagName === 'span' && (child.classList.contains('sr-only') || child.textContent?.includes('Assistant Reply:'))) {
+                  continue;
+                }
+                
+                if (tagName === 'p') {
+                  const pText = child.textContent?.trim();
+                  if (pText && pText.length > 0) {
+                    text += pText + '\n\n';
+                  }
+                } else if (tagName === 'ul' || tagName === 'ol') {
+                  const listItems = child.querySelectorAll('li');
+                  for (let j = 0; j < listItems.length; j++) {
+                    const li = listItems[j];
+                    let liText = li.textContent?.trim() || '';
+                    
+                    if (liText.startsWith('::marker')) {
+                      liText = liText.replace('::marker', '').trim();
+                    }
+                    
+                    if (liText && liText.length > 10) {
+                      text += `• ${liText}\n`;
+                    }
+                  }
+                  text += '\n';
+                } else if (tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4' || tagName === 'h5' || tagName === 'h6') {
+                  const headingText = child.textContent?.trim();
+                  if (headingText && headingText.length > 0) {
+                    text += `**${headingText}**\n\n`;
+                  }
+                } else if (tagName === 'strong' || tagName === 'b') {
+                  const strongText = child.textContent?.trim();
+                  if (strongText && strongText.length > 0) {
+                    text += `**${strongText}**\n\n`;
+                  }
+                } else if (tagName === 'blockquote') {
+                  const quoteText = child.textContent?.trim();
+                  if (quoteText && quoteText.length > 0) {
+                    text += `> ${quoteText}\n\n`;
+                  }
+                } else if (tagName === 'code') {
+                  const codeText = child.textContent?.trim();
+                  if (codeText && codeText.length > 0) {
+                    text += `\`${codeText}\`\n\n`;
+                  }
+                } else if (tagName === 'pre') {
+                  const preText = child.textContent?.trim();
+                  if (preText && preText.length > 0) {
+                    text += `\`\`\`\n${preText}\n\`\`\`\n\n`;
+                  }
+                } else {
+                  const otherText = child.textContent?.trim();
+                  if (otherText && otherText.length > 10 && !otherText.includes('window.') && !otherText.includes('function')) {
+                    text += otherText + '\n\n';
+                  }
+                }
+              }
+              
+              return text;
+            };
+            
+            if (el.querySelector('.prose, [role="article"]')) {
+              const proseContainer = el.querySelector('.prose, [role="article"]') || el;
+              result = processElement(proseContainer);
+            } else {
+              result = processElement(el);
+            }
+            
+            return result.trim();
+          });
+          
+          if (structuredText && 
+              structuredText.length > 20 && 
+              structuredText.trim() !== question &&
+              !structuredText.includes('window.plausible') &&
+              !structuredText.includes('function()') &&
+              !structuredText.includes('analytics') &&
+              !structuredText.startsWith('window.') &&
+              !structuredText.includes('.push(arguments)') &&
+              !structuredText.includes('Upgrade to Pro') &&
+              !structuredText.includes('Terms and our Privacy Policy') &&
+              !structuredText.includes('Search Grounding Details') &&
+              !structuredText.includes('Search suggestions') &&
+              !structuredText.includes('Generated with') &&
+              structuredText.trim() !== 'Search Grounding Details') {
+            console.log(`Found structured response with selector ${selector}: ${structuredText.substring(0, 200)}...`);
+            return structuredText;
+          }
+          
+          const simpleText = await lastElement.evaluate((el: Element) => {
             const textContent = el.textContent || '';
             return textContent.trim();
           });
           
-          if (text && 
-              text.length > 20 && 
-              text.trim() !== question &&
-              !text.includes('window.plausible') &&
-              !text.includes('function()') &&
-              !text.includes('analytics') &&
-              !text.startsWith('window.') &&
-              !text.includes('.push(arguments)') &&
-              !text.includes('Upgrade to Pro') &&
-              !text.includes('Terms and our Privacy Policy') &&
-              !text.includes('Search Grounding Details') &&
-              !text.includes('Search suggestions') &&
-              !text.includes('Generated with') &&
-              text.trim() !== 'Search Grounding Details') {
-            console.log(`Found response with selector ${selector}: ${text.substring(0, 100)}...`);
-            return text.trim();
+          if (simpleText && 
+              simpleText.length > 20 && 
+              simpleText.trim() !== question &&
+              !simpleText.includes('window.plausible') &&
+              !simpleText.includes('function()') &&
+              !simpleText.includes('analytics') &&
+              !simpleText.startsWith('window.') &&
+              !simpleText.includes('.push(arguments)') &&
+              !simpleText.includes('Upgrade to Pro') &&
+              !simpleText.includes('Terms and our Privacy Policy') &&
+              !simpleText.includes('Search Grounding Details') &&
+              !simpleText.includes('Search suggestions') &&
+              !simpleText.includes('Generated with') &&
+              simpleText.trim() !== 'Search Grounding Details') {
+            console.log(`Found simple response with selector ${selector}: ${simpleText.substring(0, 100)}...`);
+            return simpleText;
           }
         }
       } catch (error) {
@@ -227,19 +326,68 @@ export class T3ChatService {
         for (const container of proseContainers) {
           const assistantSpan = container.querySelector('span.sr-only, span[class*="sr-only"]');
           if (assistantSpan && assistantSpan.textContent?.includes('Assistant Reply:')) {
-            const paragraphs = container.querySelectorAll('p, div:not(.sr-only)');
             let responseText = '';
             
-            for (const paragraph of paragraphs) {
-              const text = paragraph.textContent?.trim();
-              if (text && 
-                  text.length > 20 && 
-                  !text.includes('Assistant Reply:') &&
-                  !text.includes('Generated with') &&
-                  !text.includes('Search Grounding Details')) {
-                responseText += text + '\n\n';
+            const processContainerElement = (element: Element): string => {
+              let text = '';
+              
+              for (let i = 0; i < element.children.length; i++) {
+                const child = element.children[i];
+                const tagName = child.tagName.toLowerCase();
+                
+                if (tagName === 'span' && (child.classList.contains('sr-only') || child.textContent?.includes('Assistant Reply:'))) {
+                  continue;
+                }
+                
+                if (tagName === 'p') {
+                  const pText = child.textContent?.trim();
+                  if (pText && pText.length > 0) {
+                    text += pText + '\n\n';
+                  }
+                } else if (tagName === 'ul' || tagName === 'ol') {
+                  const listItems = child.querySelectorAll('li');
+                  for (let j = 0; j < listItems.length; j++) {
+                    const li = listItems[j];
+                    let liText = li.textContent?.trim() || '';
+                    
+                    if (liText.startsWith('::marker')) {
+                      liText = liText.replace('::marker', '').trim();
+                    }
+                    
+                    if (liText && liText.length > 10) {
+                      text += `• ${liText}\n`;
+                    }
+                  }
+                  text += '\n';
+                } else if (tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4' || tagName === 'h5' || tagName === 'h6') {
+                  const headingText = child.textContent?.trim();
+                  if (headingText && headingText.length > 0) {
+                    text += `**${headingText}**\n\n`;
+                  }
+                } else if (tagName === 'strong' || tagName === 'b') {
+                  const strongText = child.textContent?.trim();
+                  if (strongText && strongText.length > 0) {
+                    text += `**${strongText}**\n\n`;
+                  }
+                } else if (tagName === 'blockquote') {
+                  const quoteText = child.textContent?.trim();
+                  if (quoteText && quoteText.length > 0) {
+                    text += `> ${quoteText}\n\n`;
+                  }
+                } else if (tagName === 'div' && !child.classList.contains('sr-only')) {
+                  const divText = child.textContent?.trim();
+                  if (divText && divText.length > 10 && 
+                      !divText.includes('Generated with') &&
+                      !divText.includes('Search Grounding Details')) {
+                    text += divText + '\n\n';
+                  }
+                }
               }
-            }
+              
+              return text;
+            };
+            
+            responseText = processContainerElement(container);
             
             if (responseText.trim().length > 50) {
               return responseText.trim();
@@ -250,7 +398,7 @@ export class T3ChatService {
       });
       
       if (assistantReplyResponse && assistantReplyResponse.length > 50) {
-        console.log(`Found Assistant Reply response: ${assistantReplyResponse.substring(0, 100)}...`);
+        console.log(`Found Assistant Reply structured response: ${assistantReplyResponse.substring(0, 200)}...`);
         return assistantReplyResponse;
       }
     } catch (error) {

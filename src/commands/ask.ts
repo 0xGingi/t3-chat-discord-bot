@@ -287,14 +287,6 @@ export async function execute(
         })
         .setTimestamp();
 
-      if (model.specialNotes) {
-        embed.addFields({
-          name: '📌 Special Notes',
-          value: model.specialNotes,
-          inline: false
-        });
-      }
-
       const actionRow = new ActionRowBuilder<ButtonBuilder>()
         .addComponents(
           new ButtonBuilder()
@@ -368,14 +360,6 @@ export async function execute(
           inline: true
         }
       );
-
-      if (model.specialNotes) {
-        embed.addFields({
-          name: '📌 Special Notes',
-          value: model.specialNotes,
-          inline: false
-        });
-      }
 
       embed
         .setFooter({ 
@@ -633,14 +617,6 @@ async function sendSingleMessage(
     }
   );
 
-  if (model.specialNotes) {
-    embed.addFields({
-      name: '📌 Special Notes',
-      value: model.specialNotes,
-      inline: false
-    });
-  }
-
   embed
     .setFooter({ 
       text: `T3.CHAT via ${model.provider} • Response ${sessionManager.getUserSession(userId)?.requestCount || 1}`,
@@ -750,14 +726,6 @@ async function sendMultipleMessages(
         });
 
       if (isLastMessage) {
-        if (model.specialNotes) {
-          embed.addFields({
-            name: '📌 Special Notes',
-            value: model.specialNotes,
-            inline: false
-          });
-        }
-
         embed.setTimestamp();
 
         const actionRow = new ActionRowBuilder<ButtonBuilder>()
