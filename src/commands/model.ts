@@ -105,7 +105,9 @@ export const data = new SlashCommandBuilder()
 export async function execute(
   interaction: ChatInputCommandInteraction, 
   modelParser: ModelParser, 
-  sessionManager: UserSessionManager
+  sessionManager: UserSessionManager,
+  t3ChatService?: any,
+  permissionManager?: any
 ) {
   const subcommand = interaction.options.getSubcommand();
 
@@ -129,7 +131,10 @@ export async function execute(
 
 export async function autocomplete(
   interaction: any,
-  modelParser: ModelParser
+  modelParser: ModelParser,
+  sessionManager?: any,
+  t3ChatService?: any,
+  permissionManager?: any
 ) {
   const focusedValue = interaction.options.getFocused();
   const allModels = modelParser.getModels();

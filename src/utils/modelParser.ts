@@ -45,6 +45,7 @@ export class ModelParser {
     
     const features = this.parseFeatures(featuresStr);
     const specialNotes = notes.trim();
+    const tier = this.parseTier(specialNotes);
 
     if (name.toLowerCase().includes('imagegen') || name.toLowerCase().includes('image gen')) {
       features.imageGen = true;
@@ -55,8 +56,19 @@ export class ModelParser {
       provider,
       url,
       features,
-      specialNotes: specialNotes || undefined
+      specialNotes: specialNotes || undefined,
+      tier
     };
+  }
+
+  private parseTier(notes: string): 'Regular' | 'Premium' {
+    const lowerNotes = notes.toLowerCase();
+    if (lowerNotes.includes('premium')) {
+      return 'Premium';
+    } else if (lowerNotes.includes('regular')) {
+      return 'Regular';
+    }
+    return 'Regular';
   }
 
   private parseFeatures(featuresStr: string): ModelFeatures {
@@ -107,5 +119,9 @@ export class ModelParser {
 
   getModelsByFeature(feature: keyof ModelFeatures): Model[] {
     return this.models.filter(model => model.features[feature]);
+  }
+
+  getModelsByTier(tier: 'Regular' | 'Premium'): Model[] {
+    return this.models.filter(model => model.tier === tier);
   }
 } 

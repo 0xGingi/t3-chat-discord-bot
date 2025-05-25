@@ -23,7 +23,8 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
 - List Models by Feature Flags with /model features
 - Query with /ask
 - Uses puppeteer as a headless browser
-- Gemini 2.5 Flash With Search Enabled is set as default model 
+- Gemini 2.5 Flash With Search Enabled is set as default model
+
 
 ## Setup Instructions
 
@@ -60,6 +61,18 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
    DISCORD_CLIENT_ID=your_discord_client_id_here
    T3_ACCESS_TOKEN=your_t3_chat_access_token_here
    USE_BETA_DOMAIN=true
+   
+   # Permission Management (Optional)
+   ALLOWED_USER_IDS=user1,user2,user3
+   ALLOWED_ROLE_IDS=role1,role2,role3
+   
+   # Rate Limiting
+   RATE_LIMIT_INTERVAL=daily
+   RATE_LIMIT_REGULAR=100
+   RATE_LIMIT_PREMIUM=10
+   
+   # Default Model (Optional)
+   DEFAULT_MODEL=Gemini 2.5 Flash
    ```
 
 3. **Deploy Discord Commands**:
@@ -79,6 +92,33 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
    ```bash
    docker-compose up -d --build
    ```
+
+## Configuration Options
+
+### Permission Management
+
+- `ALLOWED_USER_IDS`: Comma-separated list of Discord user IDs that can use the bot (leave empty to allow everyone)
+- `ALLOWED_ROLE_IDS`: Comma-separated list of Discord role IDs that can use the bot (leave empty to allow everyone)
+
+### Rate Limiting
+
+- `RATE_LIMIT_INTERVAL`: Time period for rate limiting (`hourly`, `daily`, `weekly`, `monthly`)
+- `RATE_LIMIT_REGULAR`: Number of requests allowed for Regular models per interval
+- `RATE_LIMIT_PREMIUM`: Number of requests allowed for Premium models per interval
+
+### Bot Settings
+
+- `DEFAULT_MODEL`: Set the default AI model for new users (e.g., "Gemini 2.5 Flash", "GPT-4o")
+
+**Note**: T3.CHAT provides 1500 Regular requests and 100 Premium requests per month. Adjust your limits accordingly.
+
+## Data Persistence
+
+The bot saves all user data to `data/bot-data.json`, including:
+- User model preferences
+- Rate limit usage tracking
+- Session data
+
 ## Bot Commands
 
 ### `/model` - Model Management
@@ -94,3 +134,11 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
 - `/ask <question> search:true` - Explicitly enable web search
 - `/ask <question> search:false` - Explicitly disable web search
 - `/ask <question> ephemeral:true` - Make response visible only to you
+
+### `/usage` - Usage Statistics
+
+- `/usage` - Check your current rate limit usage and remaining quota
+
+### `/info` - Bot Information
+
+- `/info` - Show bot configuration, model statistics, and storage information

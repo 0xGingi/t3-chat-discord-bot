@@ -2,12 +2,16 @@ import { REST, Routes } from 'discord.js';
 import * as dotenv from 'dotenv';
 import * as modelCommand from './commands/model.js';
 import * as askCommand from './commands/ask.js';
+import * as usageCommand from './commands/usage.js';
+import * as infoCommand from './commands/info.js';
 
 dotenv.config();
 
 const commands = [
   modelCommand.data.toJSON(),
   askCommand.data.toJSON(),
+  usageCommand.data.toJSON(),
+  infoCommand.data.toJSON(),
 ];
 
 const rest = new REST().setToken(process.env.DISCORD_TOKEN!);

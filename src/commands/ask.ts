@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { ModelParser } from '../utils/modelParser.js';
 import { UserSessionManager } from '../utils/userSessionManager.js';
+import { PermissionManager } from '../utils/permissionManager.js';
 import { T3ChatService } from '../services/t3ChatService.js';
 
 const PROVIDER_COLORS = {
@@ -81,15 +82,30 @@ export async function execute(
   interaction: ChatInputCommandInteraction,
   modelParser: ModelParser,
   sessionManager: UserSessionManager,
-  t3ChatService: T3ChatService
+  t3ChatService: T3ChatService,
+  permissionManager: PermissionManager
 ) {
+  const userId = interaction.user.id;
+
+  const permissionCheck = await permissionManager.checkPermissions(interaction);
+  if (!permissionCheck.allowed) {
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xff4757)
+      .setTitle('🚫 Access Denied')
+      .setDescription(permissionCheck.reason || 'You do not have permission to use this bot.')
+      .setFooter({ text: 'T3.CHAT Discord Bot • Permission Required' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    return;
+  }
+
   const question = interaction.options.getString('question', true);
   const imageUrl = interaction.options.getString('image_url');
   const pdfUrl = interaction.options.getString('pdf_url');
   const searchOption = interaction.options.getBoolean('search');
   const isEphemeral = interaction.options.getBoolean('ephemeral') || false;
 
-  const userId = interaction.user.id;
   const currentModelName = sessionManager.getCurrentModel(userId);
   const model = modelParser.getModelByName(currentModelName);
 
@@ -104,6 +120,42 @@ export async function execute(
         inline: false
       })
       .setFooter({ text: 'T3.CHAT Discord Bot • Model Selection Required' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    return;
+  }
+
+  const userSession = sessionManager.getOrCreateSession(userId);
+  const isPremium = model.tier === 'Premium';
+  
+  const rateLimitCheck = permissionManager.checkRateLimit(userSession.usageTracker, isPremium);
+  if (!rateLimitCheck.allowed) {
+    const remainingQuota = permissionManager.getRemainingQuota(userSession.usageTracker);
+    const usageStats = permissionManager.getUsageStats(userSession.usageTracker);
+    
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xffa502)
+      .setTitle('⏱️ Rate Limit Exceeded')
+      .setDescription(rateLimitCheck.reason || 'You have exceeded your rate limit.')
+      .addFields(
+        {
+          name: '📊 Current Usage',
+          value: `**Regular Models:** ${usageStats.regular}/${usageStats.limit.regular}\n**Premium Models:** ${usageStats.premium}/${usageStats.limit.premium}`,
+          inline: true
+        },
+        {
+          name: '🔄 Reset Time',
+          value: rateLimitCheck.nextReset ? `<t:${Math.floor(rateLimitCheck.nextReset.getTime() / 1000)}:R>` : 'Unknown',
+          inline: true
+        },
+        {
+          name: '💡 Available Quota',
+          value: `**Regular:** ${remainingQuota.regular} requests\n**Premium:** ${remainingQuota.premium} requests`,
+          inline: false
+        }
+      )
+      .setFooter({ text: `Rate limit period: ${usageStats.interval}` })
       .setTimestamp();
 
     await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
@@ -251,6 +303,9 @@ export async function execute(
     sessionManager.updateLastUsed(userId);
 
     const response = await t3ChatService.askModel(model, question, enableSearch, imageUrl || undefined, pdfUrl || undefined);
+    
+    permissionManager.recordUsage(userSession.usageTracker, isPremium);
+    
     const responseTime = ((Date.now() - startTime) / 1000).toFixed(1);
 
     if (typeof response === 'object' && response.type === 'image') {

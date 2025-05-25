@@ -51,6 +51,8 @@ COPY . .
 RUN bun run build
 RUN bun run deploy
 
+RUN mkdir -p /app/data && chown bun:bun /app/data
+
 USER bun
 EXPOSE 3000
 CMD ["bun", "run", "start"] 

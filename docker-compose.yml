@@ -6,4 +6,12 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=production 
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data:rw
+    networks:
+      - t3-chat-network
+
+networks:
+  t3-chat-network:
+    driver: bridge 
