@@ -23,7 +23,26 @@ export class PermissionManager {
       .filter(id => id.length > 0);
   }
 
+  checkDMUsage(interaction: ChatInputCommandInteraction): { allowed: boolean; reason?: string } {
+    const isDMDisabled = process.env.DISABLE_DM_USAGE === 'true';
+    const isDirectMessage = !interaction.guild;
+
+    if (isDMDisabled && isDirectMessage) {
+      return {
+        allowed: false,
+        reason: 'This bot is not available for use in direct messages. Please use it in a server instead.'
+      };
+    }
+
+    return { allowed: true };
+  }
+
   async checkPermissions(interaction: ChatInputCommandInteraction): Promise<{ allowed: boolean; reason?: string }> {
+    const dmCheck = this.checkDMUsage(interaction);
+    if (!dmCheck.allowed) {
+      return dmCheck;
+    }
+
     const userId = interaction.user.id;
     
     if (this.config.allowedUserIds.length === 0 && this.config.allowedRoleIds.length === 0) {

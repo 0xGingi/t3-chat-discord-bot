@@ -109,6 +109,21 @@ export async function execute(
   t3ChatService?: any,
   permissionManager?: any
 ) {
+  if (permissionManager) {
+    const permissionCheck = await permissionManager.checkPermissions(interaction);
+    if (!permissionCheck.allowed) {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xff4757)
+        .setTitle('🚫 Access Denied')
+        .setDescription(permissionCheck.reason || 'You do not have permission to use this bot.')
+        .setFooter({ text: 'T3.CHAT Discord Bot • Permission Required' })
+        .setTimestamp();
+
+      await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+      return;
+    }
+  }
+
   const subcommand = interaction.options.getSubcommand();
 
   switch (subcommand) {

@@ -71,6 +71,9 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
    RATE_LIMIT_REGULAR=100
    RATE_LIMIT_PREMIUM=10
    
+   # DM Settings (Optional)
+   DISABLE_DM_USAGE=false
+   
    # Default Model (Optional)
    DEFAULT_MODEL=Gemini 2.5 Flash
    ```
@@ -105,6 +108,10 @@ A Discord bot that integrates with T3.CHAT AI models, allowing users to interact
 - `RATE_LIMIT_INTERVAL`: Time period for rate limiting (`hourly`, `daily`, `weekly`, `monthly`)
 - `RATE_LIMIT_REGULAR`: Number of requests allowed for Regular models per interval
 - `RATE_LIMIT_PREMIUM`: Number of requests allowed for Premium models per interval
+
+### DM Settings
+
+- `DISABLE_DM_USAGE`: Set to `true` to prevent the bot from responding to commands in Direct Messages (default: `false`)
 
 ### Bot Settings
 
